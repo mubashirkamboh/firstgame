@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gun Fighting Game</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background-color: #333; overflow: hidden; }
+    canvas { display: block; margin: auto; background: url('https://i.imgur.com/r9z9dP6.jpg') center/cover no-repeat; }
+    #message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 3rem;
+      display: none;
+      text-align: center;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 1.2rem;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="message">
+    <div id="resultText"></div>
+    <button onclick="restartGame()">Restart</button>
+  </div>
+  <canvas id="gameCanvas" width="960" height="540"></canvas>
+  <audio id="gunSound" src="https://www.soundjay.com/mechanical/sounds/mechanical-gunshot-1.mp3"></audio>
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const gunSound = document.getElementById("gunSound");
+    const messageBox = document.getElementById("message");
+    const resultText = document.getElementById("resultText");
+
+    const TEAM_SIZE = 6;
+    const PLAYER_WIDTH = 30;
+    const PLAYER_HEIGHT = 60;
+    const GUN_LENGTH = 25;
+    const projectiles = [];
+    const debris = [];
+    let gameOver = false;
+
+    class Player {
+      constructor(x, y, team, color) {
+        this.x = x;
+        this.y = y;
+        this.team = team;
+        this.color = color;
+        this.health = 100;
+        this.direction = 1;
+        this.cooldown = 0;
+        this.alive = true;
+      }
+
+      draw() {
+        if (!this.alive) return;
+        ctx.fillStyle = "green";
+        ctx.fillRect(this.x, this.y - 10, PLAYER_WIDTH * (this.health / 100), 5);
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, PLAYER_WIDTH, PLAYER_HEIGHT);
+        ctx.strokeStyle = "black";
+        ctx.beginPath();
+        ctx.moveTo(this.x + PLAYER_WIDTH / 2, this.y + PLAYER_HEIGHT / 2);
+        ctx.lineTo(this.x + PLAYER_WIDTH / 2 + GUN_LENGTH * this.direction, this.y + PLAYER_HEIGHT / 2);
+        ctx.stroke();
+      }
+
+      move(dx, dy) {
+        this.x += dx;
+        this.y += dy;
+        if (dx > 0) this.direction = 1;
+        else if (dx < 0) this.direction = -1;
+      }
+
+      shoot() {
+        if (this.cooldown <= 0 && this.alive) {
+          const px = this.x + PLAYER_WIDTH / 2 + GUN_LENGTH * this.direction;
+          const py = this.y + PLAYER_HEIGHT / 2;
+          projectiles.push(new Projectile(px, py, this.direction, this.team));
+          gunSound.currentTime = 0;
+          gunSound.play();
+          this.cooldown = 30;
+        }
+      }
+
+      updateCooldown() {
+        if (this.cooldown > 0) this.cooldown--;
+      }
+    }
+
+    class Projectile {
+      constructor(x, y, direction, team) {
+        this.x = x;
+        this.y = y;
+        this.direction = direction;
+        this.team = team;
+      }
+      update() { this.x += this.direction * 10; }
+      draw() {
+        ctx.fillStyle = "yellow";
+        ctx.fillRect(this.x, this.y, 5, 2);
+      }
+    }
+
+    class Debris {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.lifetime = 60;
+      }
+      update() { this.lifetime--; }
+      draw() {
+        ctx.fillStyle = "#888";
+        ctx.fillRect(this.x, this.y, 10, 10);
+      }
+    }
+
+    let myTeam, enemyTeam;
+
+    function initTeams() {
+      myTeam = [];
+      enemyTeam = [];
+      for (let i = 0; i < TEAM_SIZE; i++) {
+        myTeam.push(new Player(50, 80 * i + 20, "my", "blue"));
+        enemyTeam.push(new Player(800, 80 * i + 20, "enemy", "red"));
+      }
+    }
+
+    function drawPlayers() {
+      myTeam.forEach(p => p.draw());
+      enemyTeam.forEach(p => p.draw());
+    }
+
+    function checkWinCondition() {
+      const myAlive = myTeam.filter(p => p.alive).length;
+      const enemyAlive = enemyTeam.filter(p => p.alive).length;
+      if (myAlive === 0 || enemyAlive === 0) {
+        gameOver = true;
+        resultText.textContent = myAlive > 0 ? "You Win!" : "You Lose!";
+        messageBox.style.display = "block";
+      }
+    }
+
+    function updateGame() {
+      if (gameOver) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      [...myTeam, ...enemyTeam].forEach(p => p.updateCooldown());
+      enemyTeam.forEach(p => {
+        if (!p.alive) return;
+        const target = myTeam.find(p => p.alive);
+        if (!target) return;
+        if (Math.random() < 0.05) p.move(-5, 0);
+        if (Math.abs(p.x - target.x) < 300 && Math.abs(p.y - target.y) < 50) {
+          p.shoot();
+        }
+      });
+
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const pr = projectiles[i];
+        pr.update();
+        pr.draw();
+        let targets = pr.team === "my" ? enemyTeam : myTeam;
+        for (let t of targets) {
+          if (t.alive && pr.x > t.x && pr.x < t.x + PLAYER_WIDTH && pr.y > t.y && pr.y < t.y + PLAYER_HEIGHT) {
+            t.health -= 10;
+            debris.push(new Debris(t.x + PLAYER_WIDTH / 2, t.y + PLAYER_HEIGHT / 2));
+            if (t.health <= 0) t.alive = false;
+            projectiles.splice(i, 1);
+            break;
+          }
+        }
+        if (pr.x < 0 || pr.x > canvas.width) {
+          projectiles.splice(i, 1);
+        }
+      }
+
+      for (let i = debris.length - 1; i >= 0; i--) {
+        const d = debris[i];
+        d.update();
+        d.draw();
+        if (d.lifetime <= 0) debris.splice(i, 1);
+      }
+
+      drawPlayers();
+      checkWinCondition();
+    }
+
+    function restartGame() {
+      projectiles.length = 0;
+      debris.length = 0;
+      gameOver = false;
+      messageBox.style.display = "none";
+      initTeams();
+    }
+
+    initTeams();
+    setInterval(updateGame, 1000 / 30);
+
+    window.addEventListener("keydown", (e) => {
+      const player = myTeam[0];
+      if (!player.alive) return;
+      if (e.key === "ArrowRight") player.move(10, 0);
+      if (e.key === "ArrowLeft") player.move(-10, 0);
+      if (e.key === "ArrowUp") player.move(0, -10);
+      if (e.key === "ArrowDown") player.move(0, 10);
+      if (e.key === " ") player.shoot();
+    });
+  </script>
+</body>
+</html>
